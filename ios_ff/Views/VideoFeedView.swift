@@ -23,7 +23,7 @@ struct VideoFeedView: View {
                         .foregroundColor(.white)
                 }
             } else {
-                VerticalPageView(videos: feedService.videos)
+                VerticalPageView(feedService: feedService)
                     .ignoresSafeArea()
             }
         }
@@ -32,7 +32,7 @@ struct VideoFeedView: View {
 }
 
 struct VerticalPageView: UIViewControllerRepresentable {
-    let videos: [VideoModel]
+    @ObservedObject var feedService: FeedService
 
     func makeUIViewController(context: Context) -> UIPageViewController {
         let pvc = UIPageViewController(
@@ -48,18 +48,27 @@ struct VerticalPageView: UIViewControllerRepresentable {
         return pvc
     }
 
-    func updateUIViewController(_ vc: UIPageViewController, context: Context) {}
+    func updateUIViewController(_ vc: UIPageViewController, context: Context) {
+        context.coordinator.updateVideos(feedService.videos)
+    }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(videos: videos)
+        Coordinator(feedService: feedService)
     }
 
     class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
-        let videos: [VideoModel]
+        var feedService: FeedService
+        private var videos: [VideoModel]
         private var controllers: [Int: VideoPageController] = [:]
+        private let log = DebugLog.shared
 
-        init(videos: [VideoModel]) {
-            self.videos = videos
+        init(feedService: FeedService) {
+            self.feedService = feedService
+            self.videos = feedService.videos
+        }
+
+        func updateVideos(_ newVideos: [VideoModel]) {
+            self.videos = newVideos
         }
 
         func viewController(at index: Int) -> VideoPageController? {
@@ -79,15 +88,22 @@ struct VerticalPageView: UIViewControllerRepresentable {
 
         func pageViewController(_ pvc: UIPageViewController, viewControllerAfter vc: UIViewController) -> UIViewController? {
             guard let vc = vc as? VideoPageController else { return nil }
-            return viewController(at: vc.pageIndex + 1)
+            let nextIndex = vc.pageIndex + 1
+            feedService.loadMoreIfNeeded(currentIndex: vc.pageIndex)
+            return viewController(at: nextIndex)
         }
 
         func pageViewController(_ pvc: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
             guard completed else { return }
             for prev in previousViewControllers {
-                (prev as? VideoPageController)?.pause()
+                if let p = prev as? VideoPageController {
+                    p.pause()
+                }
             }
             if let current = pvc.viewControllers?.first as? VideoPageController {
+                let video = current.video!
+                log.log("Swipe -> index \(current.pageIndex), \(video.author)", type: .swipe)
+                log.log("Play: \(video.videoUrl.components(separatedBy: "/").last ?? "")", type: .play)
                 current.play()
             }
         }

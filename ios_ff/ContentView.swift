@@ -1,14 +1,16 @@
+import Combine
 import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab = 0
+    @StateObject private var debugLog = DebugLog.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
                 VideoFeedView()
                     .tag(0)
-                PlaceholderView(title: "Discover")
+                DebugLogView()
                     .tag(1)
                 PlaceholderView(title: "")
                     .tag(2)
@@ -32,6 +34,118 @@ struct PlaceholderView: View {
             Text(title)
                 .font(.title)
                 .foregroundColor(.white)
+        }
+    }
+}
+
+struct DebugLogView: View {
+    @ObservedObject var log = DebugLog.shared
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Debug Log")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text("\(log.entries.count) entries")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Button("Clear") { log.clear() }
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 50)
+                .padding(.bottom, 8)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(log.entries) { entry in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text(entry.time)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.gray)
+                                    Text(entry.icon)
+                                        .font(.system(size: 10))
+                                    Text(entry.message)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(entry.color)
+                                }
+                                .id(entry.id)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                    }
+                    .onChange(of: log.entries.count) {
+                        if let last = log.entries.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+
+                Spacer().frame(height: 80)
+            }
+        }
+    }
+}
+
+class DebugLog: ObservableObject {
+    static let shared = DebugLog()
+
+    struct Entry: Identifiable {
+        let id = UUID()
+        let time: String
+        let icon: String
+        let message: String
+        let type: LogType
+        var color: Color {
+            switch type {
+            case .feed: return .cyan
+            case .swipe: return .yellow
+            case .play: return .green
+            case .error: return .red
+            case .info: return .white
+            }
+        }
+    }
+
+    enum LogType { case feed, swipe, play, error, info }
+
+    @Published var entries: [Entry] = []
+    private let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    func log(_ message: String, type: LogType) {
+        let entry = Entry(
+            time: formatter.string(from: Date()),
+            icon: iconFor(type),
+            message: message,
+            type: type
+        )
+        DispatchQueue.main.async {
+            self.entries.append(entry)
+            if self.entries.count > 500 {
+                self.entries.removeFirst(self.entries.count - 500)
+            }
+        }
+    }
+
+    func clear() { entries.removeAll() }
+
+    private func iconFor(_ type: LogType) -> String {
+        switch type {
+        case .feed: return "📡"
+        case .swipe: return "👆"
+        case .play: return "▶️"
+        case .error: return "❌"
+        case .info: return "ℹ️"
         }
     }
 }
